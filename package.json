@@ -1,8 +1,9 @@
 {
   "name": "fcc-exercise-tracker",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "A REST API project, part of Free Code Camp's curriculum",
   "main": "server.js",
+  "author": "Christian Manzaraz",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js"
@@ -17,7 +18,7 @@
     "nodemon": "^2.0.15"
   },
   "repository": {
-    "url": "https://github.com/freeCodeCamp/boilerplate-project-exercisetracker"
+    "url": "https://github.com/Manzaraz/boilerplate-project-exercisetracker.git"
   },
   "license": "MIT",
   "keywords": [
