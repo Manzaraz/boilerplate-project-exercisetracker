@@ -1,195 +1,181 @@
 require("dotenv").config();
 const express = require("express"),
   cors = require("cors"),
-  mongoose = require("mongoose"),
-  bodyParser = require("body-parser");
+  mongoose = require("mongoose");
 
-// DB conection
+// DB connection
 const db = require("./database/database.js"),
-  { User, Exercise } = require("./model/models.js");
+  { UserInfo, ExerciseInfo, LogInfo } = require("./model/models.js");
 
 db.connect();
 
 const app = express();
 
 // To watch if DB is connected
-console.log(mongoose.connection.readyState); // 1 or 2 it's ok
+console.log(mongoose.connection.readyState);
 
 // To parse request
-app.use(bodyParser.urlencoded({ extended: false }));
-
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
 app.use(cors());
-
-// Static files
 app.use(express.static("public"));
-
-// Routing
 app.get("/", (req, res) => {
   res.sendFile(__dirname + "/views/index.html");
 });
 
-//  Create a userName model
-app.post("/api/users", function (req, res) {
-  const newUser = new User({
-    username: req.body.username,
-  });
-  newUser.save(function (error, data) {
-    if (error) {
-      res.json({ error: "Username already taken" });
+const users = [];
+// console.log(shortid.generate());
+
+// You can POST to /api/users with form data username to create a new user.
+// The returned response from POST /api/users with form data username will be an object with username and _id properties.
+app.post("/api/users", (req, res) => {
+  let { username } = req.body;
+
+  UserInfo.find({ username }, function (err, userData) {
+    if (err) return console.error("Error with server: ", err);
+    if (userData.length === 0) {
+      const newUser = new UserInfo({
+        username: req.body.username,
+      });
+
+      newUser.save(function (err, data) {
+        if (err) return console.error("Error Saving User: ", err);
+        res.json({
+          username: data.username,
+          _id: data._id,
+        });
+      });
     } else {
-      res.json({ username: newUser.username, _id: newUser._id });
+      res.send({
+        Error: "Username already exists",
+      });
     }
   });
 });
 
-// petición GET a "/api/users" para obtener una lista con todos los usuarios.
+// You can make a GET request to /api/users to get a list of all users.
+// The GET request to /api/users returns an array.
+// Each element in the array returned from GET /api/users is an object literal containing a user's username and _id.
 app.get("/api/users", (req, res) => {
-  User.find({}, (err, users) => {
-    if (!err) {
-      res.send(users);
-    } else {
-      return;
-    }
+  UserInfo.find(function (err, data) {
+    if (err) return console.error("Error server", err);
+    if (!data) return res.json({ Error: "DB have no users" });
+    return res.json(data);
   });
+  // return res.json({users});
 });
 
-// POST to /api/users/:_id/exercises with form data description, duration, and optionally date. If no date is supplied, the current date will be used.
+// You can POST to /api/users/:_id/exercises with form data description, duration, and optionally date. If no date is supplied, the current date will be used.
+// The response returned from POST /api/users/:_id/exercises will be the user object with the exercise fields added.
 app.post("/api/users/:_id/exercises", (req, res) => {
-  let id = req.params._id;
-  // console.log(req.body);
+  let idJson = { id: req.params._id },
+    checkedDate = new Date(req.body.date),
+    idToCheck = idJson.id;
 
-  User.findById(id, function (error, data) {
-    if (!data) return res.json({ error: `Unknown UserId ${error}` });
-    // console.log(data);
-    if (!req.body.date) {
-      data.exercises.push({
-        date: new Date().toDateString(),
-        description: req.body.description,
-        duration: req.body.duration,
-      });
-      // console.log(data.exercises);
-      data.save(data.exercises);
-      res.json({
-        _id: id,
-        username: data.username,
-        date: new Date().toDateString(),
-        description: req.body.description,
-        duration: req.body.duration,
-      });
+  const noDateHandler = () => {
+    if (checkedDate instanceof Date && !isNaN(checkedDate)) {
+      return checkedDate;
     } else {
-      data.exercises.push({
-        date: new Date(req.body.date).toDateString(),
-        description: req.body.description,
-        duration: req.body.duration,
-      });
-      data.save(data.exercises);
-      res.json({
-        _id: id,
-        username: data.username,
-        date: new Date(req.body.date).toDateString(),
-        description: req.body.description,
-        duration: req.body.duration,
-      });
+      checkedDate = new Date();
     }
+  };
+
+  UserInfo.findById(idToCheck, function (err, dataForm) {
+    noDateHandler(checkedDate);
+    if (err) return console.error("Error with id: ", err);
+
+    const newExercise = new ExerciseInfo({
+      username: dataForm.username,
+      description: req.body.description,
+      duration: req.body.duration,
+      date: checkedDate.toDateString(),
+    });
+
+    newExercise.save(function (err, data) {
+      if (err) {
+        console.error("Error sa ving exercise: ", err);
+      } else {
+        console.log("saved exercise successfully");
+        res.json({
+          _id: idToCheck,
+          username: data.username,
+          description: data.description,
+          duration: data.duration,
+          date: data.date.toDateString(),
+        });
+      }
+    });
   });
 });
 
-// Puedes hacer una petición GET a /api/users/:_id/logs para recuperar un log completo del ejercicio de cualquier usuario.
+// You can make a GET request to /api/users/:_id/logs to retrieve a full exercise log of any user.
+// A request to a user's log GET /api/users/:_id/logs returns a user object with a count property representing the number of exercises that belong to that user.
+
+let logsArray = [];
+
 app.get("/api/users/:_id/logs", (req, res) => {
-  // let id = req.params._id,
-  //   fromDate,
-  //   toDate,
-  //   limit;
+  let { from, to, limit } = req.query;
+  let id = req.params._id;
 
-  // if (req.query.from) {
-  //   fromDate = new Date(req.query.from);
-  // } else {
-  //   fromDate = new Date("0001-01-01");
-  // }
+  // check Id on userinfos
+  UserInfo.findById(id, function (err, data) {
+    if (err) return console.err("Error With ID: ", err);
 
-  // if (req.query.to) {
-  //   toDate = new Date(req.query.to);
-  // } else {
-  //   toDate = new Date();
-  // }
+    let query = { username: data.username };
 
-  // if (isNaN(fromDate) && req.query.from)
-  //   return res.json({ error: "'from' is not a valid date format" });
-  // if (isNaN(toDate) && req.query.to)
-  //   return res.json({ error: "'to' is not a valid date format" });
-
-  // if (fromDate > toDate)
-  //   return res.json({
-  //     error: "'from' date is more recent than the 'to' date.",
-  //   });
-
-  // if (isNaN(0 + req.query.limit) && req.query.limit) {
-  //   return res.json({
-  //     error: "'limit' is not an integer number, please try again",
-  //   });
-  // } else {
-  //   limit = parseInt(req.query.limit);
-  // }
-
-  // if (!mongoose.Types.ObjectId.isValid(id)) {
-  //   return res.json({
-  //     Error:
-  //       "User ID is not in a valid ID format. Please check it and try again.",
-  //   });
-  // }
-
-  // User.find({
-  //   _id: id,
-  //   date: { $gte: fromDate, $lte: toDate },
-  // })
-  //   .select("Description duration date -_id")
-  //   .limit(limit)
-  //   .exec(function (err, data) {
-  //     if (err)
-  //       return console.error("Error trying to find matching username", err);
-  //     if (data.length > 0) {
-  //       // We have a matching user, so let's respond with a JSON object containing their exercise log, including user details and log count, as per the user story requirements:
-  //       return res.json({
-  //         username: username,
-  //         _id: userId,
-  //         count: data.length,
-  //         log: [
-  //           {
-  //             description: data.exercises.description,
-  //             duration: data.exercises.description,
-  //             date: new Date(data.exercises.date).toDateString,
-  //             _id: data.exercises._id,
-  //           },
-  //         ],
-  //       });
-  //     } else {
-  //       return res.json({
-  //         Error:
-  //           "User " +
-  //           username +
-  //           " (user ID: " +
-  //           userId +
-  //           ") doesn't have any exercises saved yet.",
-  //       });
-  //     }
-  //   });
-
-  /**  first try */
-  let { id, from, to, limit } = req.params;
-
-  User.findById(id, function (err, data) {
-    if (err) return console.log(err);
-    if (!data) {
-      res.json({ error: "Unknown userId" });
-    } else {
-      console.log(data);
-      res.json({
-        _id: data._id,
-        username: data.username,
-        count: data.exercises.length,
-        log: data.exercises,
-      });
+    if (from !== undefined && to === undefined) {
+      query.date = { $gte: new Date(from) };
+    } else if (to !== undefined && from === undefined) {
+      query.date = { $lte: new Date(to) };
+    } else if (from !== undefined && to !== undefined) {
+      query.date = { $gte: new Date(from), $lte: new Date(to) };
     }
+
+    let limitCheckeer = (limit) => {
+      let maxLimit = 100;
+      if (limit) {
+        return limit;
+      } else {
+        return maxLimit;
+      }
+    };
+
+    ExerciseInfo.find(
+      query,
+      null,
+      { limit: limitCheckeer(+limit) },
+      function (err, docs) {
+        if (err) return console.error("Error with Exercise", err);
+        if (!docs) return res.json({ Error: "There's no exercises logs" });
+
+        let documents = docs;
+
+        logsArray = documents.map((el) => {
+          return {
+            description: el.description,
+            duration: el.duration,
+            date: el.date.toDateString(),
+          };
+        });
+
+        const test = new LogInfo({
+          username: data.username,
+          count: logsArray.length,
+          log: logsArray,
+        });
+
+        test.save(function (err, logData) {
+          if (err) return console.error("Error with logs", err);
+
+          res.json({
+            _id: id,
+            username: logData.username,
+            count: logData.count,
+            log: logData.log,
+          });
+        });
+      }
+    );
   });
 });
 
